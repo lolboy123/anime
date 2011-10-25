@@ -1,0 +1,309 @@
+#!/bin/bash
+VERSION="0.1"
+CONFIG_DIR=~/.anime/
+
+config_file()
+{
+	mkdir -p "$(dirname "$1")"
+	touch "$1"
+	echo "$1"
+}
+
+post()
+{
+	COOKIES="$(config_file ${CONFIG_DIR}/cookies)"
+	URL="http://myanimelist.net/$1"
+	GET=""
+
+	shift
+	if [ "0$1" = "0-G" ]
+	then
+		shift
+		GET="G"
+	fi
+	DATA=""
+	for i in $(seq $# -2 1)
+	do
+		DATA="${DATA} --data $1=$(echo $2 | sed -s "s/ /%20/g")"
+		shift 2
+	done
+	curl -sL${GET}c "${COOKIES}" -b "${COOKIES}" ${DATA} "${URL}"
+}
+
+has_mal_config()
+{
+	[ -n "$(cat "$(config_file "${CONFIG_DIR}/username")")" ]
+	return $?
+}
+
+read_and_save_mal_config()
+{
+	LOGIN_URL="/login.php"
+	COMPLETED=""
+
+	> $(config_file ${CONFIG_DIR}/cookies)
+	> $(config_file ${CONFIG_DIR}/username)
+
+	while [ -z "${COMPLETED}" ]
+	do
+		USERNAME=""
+		PASSWORD=""
+		while [ -z "${USERNAME}" ]
+		do
+			echo -n "Username: "
+			read USERNAME
+		done
+		while [ -z "${PASSWORD}" ]
+		do
+			echo -n "Password: "
+			stty -echo
+			read PASSWORD
+			stty echo
+			echo
+		done
+		echo -n "Logging in... "
+		post "${LOGIN_URL}" username "${USERNAME}" password "${PASSWORD}" cookie 1 sublogin Login | grep -q "Could not find that username" &&
+		{
+			echo "fail"
+		} || {
+			echo "${USERNAME}" > $(config_file ${CONFIG_DIR}/username)
+			echo "OK"
+			COMPLETED="1"
+		}
+	done
+}
+
+search_anime()
+{
+	SEARCH_URL="/anime.php"
+	FOUND=""
+
+	while [ -z "${FOUND}" ]
+	do
+		echo -n "Title: "
+		read QUERY
+		RESULTS=()
+		while read TITLE
+		do
+			read COUNT
+			echo "${TITLE}" | grep -q "Ranked #" &&
+			{
+				ID="${COUNT}"
+				read COUNT
+				FOUND="1"
+				ID="$(echo "${ID}" | grep -o "/[0-9]*" | grep -o "[0-9]*")"
+				TITLE="$(echo "${TITLE}" | grep -o "v>[^<]*" | grep -o "[^>]*$")"
+				COUNT="$(echo "${COUNT}" | grep -o "[-0-9]*$")"
+				if [ "0${COUNT}" = "0-" ]
+				then
+					COUNT="0"
+				fi
+				RESULTS[${#RESULTS[@]}]="${ID}"
+				RESULTS[${#RESULTS[@]}]="${TITLE}"
+				RESULTS[${#RESULTS[@]}]="${COUNT}"
+				break
+			}
+			ID="$(echo "${TITLE}" | grep -o "/[0-9]*/" | grep -o "[0-9]*")"
+			TITLE="$(echo "${TITLE}" | grep -o "strong>[^<]*" | grep -o "[^>]*$")"
+			COUNT="$(echo "${COUNT}" | grep -o "[-0-9]*")"
+			if [ "0${COUNT}" = "0-" ]
+			then
+				COUNT="0"
+			fi
+			RESULTS[${#RESULTS[@]}]="${ID}"
+			RESULTS[${#RESULTS[@]}]="${TITLE}"
+			RESULTS[${#RESULTS[@]}]="${COUNT}"
+		done < <(post "${SEARCH_URL}" -G q "${QUERY}" | grep -o "\(href=\"http://myanimelist.net/anime/[0-9]*/[^\"]*\"><strong>[^<]*</strong\)\|\(<td class=\"borderClass bgColor\" align=\"center\">[-0-9]*</td><\)\|\(<h1><div style=\"float: right; font-size: 13px;\">Ranked #[0-9]*</div>[^<]*</h1>\)\|\(<a href=\"http://myanimelist.net/anime/[0-9]*/[^> ]*\"><img\)\|\(<span class=\"dark_text\">Episodes:</span> [-0-9]*\)")
+		if [ "0${#RESULTS[@]}" -eq "0" ]
+		then
+			echo "No anime found. Please try again"
+		elif [ "0${#RESULTS[@]}" -eq "3" ]
+		then
+			echo "'${RESULTS[1]}' is found"
+			FOUND="1"
+			echo "TITLE_NAME=\"${RESULTS[1]}\"" >> $(config_file "$1/.anime/info")
+			echo "EPISODES_TOTAL=\"${RESULTS[2]}\"" >> $(config_file "$1/.anime/info")
+			echo "ID=\"${RESULTS[0]}\"" >> $(config_file "$1/.anime/info")
+		else
+			for i in $(seq 0 3 $((${#RESULTS[@]} - 1)))
+			do
+				echo -e "$(($i / 3 + 1))\t${RESULTS[$(($i + 1))]}"
+			done
+			echo -n "Which anime did you mean? "
+			while read ANSWER
+			do
+				if [ "0${ANSWER}" -le "0" -o "0${ANSWER}" -gt "$((${#RESULTS[@]} / 3))" ]
+				then
+					echo -n "Sorry, '${ANSWER}' is not correct response. Which anime did you mean? "
+				else
+					i="$((3 * (${ANSWER} - 1)))"
+					echo "'${RESULTS[$(($i + 1))]}' is chosen"
+					echo "TITLE_NAME=\"${RESULTS[$((i + 1))]}\"" >> "$(config_file "$1/.anime/info")"
+					echo "EPISODES_TOTAL=\"${RESULTS[$(($i + 2))]}\"" >> "$(config_file "$1/.anime/info")"
+					echo "ID=\"${RESULTS[$i]}\"" >> "$(config_file "$1/.anime/info")"
+					break
+				fi
+			done
+			FOUND="1"
+		fi
+	done
+}
+
+init()
+{
+	has_mal_config ||
+	{
+		echo -n "You don't have MyAnimeList account configured. Do you want to configure it? [Y/n] "
+		while read ANSWER
+		do
+			if [ -z "${ANSWER}" -o "${ANSWER}" = "Y" -o "${ANSWER}" = "y" ]
+			then
+				read_and_save_mal_config
+				break
+			elif [ "${ANSWER}" = "N" -o "${ANSWER}" = "n" ]
+			then
+				break
+			else
+				echo -n "Sorry, '${ANSWER}' is not correct response. Do you want to configure MyAnimeList account? [Y/n] "
+			fi
+		done
+	}
+	echo "EPISODES_SEEN=\"0\"" >> "$(config_file "$1/.anime/info")"
+	echo "EPISODES_TOTAL=\"0\"" >> "$(config_file "$1/.anime/info")"
+	has_mal_config &&
+	{
+		echo -n "Do you want to search this anime on MyAnimeList? [y/N] "
+		while read ANSWER
+		do
+			if [ "${ANSWER}" = "Y" -o "${ANSWER}" = "y" ]
+			then
+				search_anime "$1"
+				break
+			elif [ -z "${ANSWER}" -o "${ANSWER}" = "N" -o "${ANSWER}" = "n" ]
+			then
+				break
+			else
+				echo -n "Sorry, '${ANSWER}' is not correct response. Do you want to search this anime? [y/N] "
+			fi
+		done
+	}
+}
+
+watch()
+{
+	MAL_UPDATE_URL="/includes/ajax.inc.php?t=79"
+	if [ ! -f "$2/.anime/info" ]
+	then
+		echo "No anime info found"
+		exit 1
+	fi
+	N=$(($1 - 1))
+	. "$2./.anime/info"
+	> "$(config_file "$2/.anime/info")"
+	echo "EPISODES_SEEN=\"$1\"" >> "$(config_file "$2/.anime/info")"
+	echo "EPISODES_TOTAL=\"${EPISODES_TOTAL}\"" >> "$(config_file "$2/.anime/info")"
+	echo "TITLE_NAME=\"${TITLE_NAME}\"" >> "$(config_file "$2/.anime/info")"
+	echo "ID=\"${ID}\"" >> "$(config_file "$2/.anime/info")"
+	i="0"
+	for FILENAME in "$2"/*.{mkv,avi}
+	do
+		if [ -f "${FILENAME}" ]
+		then
+			SERIES[$i]="${FILENAME}"
+			i=$(($i + 1))
+		fi
+	done
+	if [ "0${EPISODES_TOTAL}" -ne "0" -a "0$N" -ge "0${EPISODES_TOTAL}" ]
+	then
+		exit
+	fi
+	$(cat ${CONFIG_DIR}/player) "${SERIES[$N]}"
+	echo -n "Updating MyAnimeList information... "
+	post "${MAL_UPDATE_URL}" anime_id ${ID} ep_val "$1" > /dev/null
+	echo "done"
+}
+
+next()
+{
+	if [ ! -f "$1/.anime/info" ]
+	then
+		echo "No anime info found"
+		exit 1
+	fi
+	EPISODES_SEEN="0"
+	. "$1/.anime/info"
+	watch $((${EPISODES_SEEN} + 1)) "$1"
+}
+
+config()
+{
+	echo -n "Do you want to change player? [y/N] "
+	read ANSWER
+	if [ "${ANSWER}" = "Y" -o "${ANSWER}" = "y" ]
+	then
+		echo -n "Choose new player: "
+		read PLAYER
+		echo "${PLAYER}" > $(config_file ${CONFIG_DIR}/player)
+		echo "'${PLAYER}' is chosen"
+	fi
+	echo -n "Do you want to update/delete MyAnimeList account info? [u/d/N] "
+	read ANSWER
+	if [ "${ANSWER}" = "U" -o "${ANSWER}" = "u" ]
+	then
+		read_and_save_mal_config
+	fi
+	if [ "${ANSWER}" = "D" -o "${ANSWER}" = "d" ]
+	then
+		> $(config_file ${CONFIG_DIR}/cookies)
+		> $(config_file ${CONFIG_DIR}/username)
+	fi
+}
+
+info()
+{
+	if [ ! -f "$1/.anime/info" ]
+	then
+		echo "No anime info found"
+		exit 1
+	fi
+	. "$1/.anime/info"
+	echo "You're watching '${TITLE_NAME}': ${EPISODES_SEEN}/${EPISODES_TOTAL}"
+}
+
+main()
+{
+	case "$1" in
+		init)
+			if [ -z "$2" ]
+			then
+				init .
+			else
+				init "$2"
+			fi;;
+		config)
+			config .;;
+		watch)
+			if [ -z "$3" ]
+			then
+				watch "$2" .
+			else
+				watch "$2" "$3"
+			fi;;
+		next)
+			if [ -z "$2" ]
+			then
+				next .
+			else
+				next "$2"
+			fi;;
+		info)
+			if [ -z "$2" ]
+			then
+				info .
+			else
+				info "$2"
+			fi;;
+	esac
+}
+
+main "$@"
