@@ -1,0 +1,16 @@
+To configure run:
+	./anime config
+
+To init run:
+	./anime init [ DIR ]
+
+To watch specific episode run:
+	./anime watch EPISODE [ DIR ]
+
+To watch next episode run:
+	./anime next [ DIR ]
+
+To watch statistics run:
+	./anime info [ DIR ]
+
+If DIR is empty current directory is used
