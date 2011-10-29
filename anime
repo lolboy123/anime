@@ -1,5 +1,5 @@
 #!/bin/bash
-VERSION="0.1"
+VERSION="0.2"
 CONFIG_DIR=~/.anime/
 
 config_file()
@@ -119,11 +119,11 @@ search_anime()
 			echo "No anime found. Please try again"
 		elif [ "0${#RESULTS[@]}" -eq "3" ]
 		then
-			echo "'${RESULTS[1]}' is found"
+			echo "'${RESULTS[1]}' is chosen"
 			FOUND="1"
-			echo "TITLE_NAME=\"${RESULTS[1]}\"" >> $(config_file "$1/.anime/info")
-			echo "EPISODES_TOTAL=\"${RESULTS[2]}\"" >> $(config_file "$1/.anime/info")
-			echo "ID=\"${RESULTS[0]}\"" >> $(config_file "$1/.anime/info")
+			echo "TITLE_NAME=\"${RESULTS[1]}\"" >> "$(config_file "$1/.anime/info")"
+			echo "EPISODES_TOTAL=\"${RESULTS[2]}\"" >> "$(config_file "$1/.anime/info")"
+			echo "ID=\"${RESULTS[0]}\"" >> "$(config_file "$1/.anime/info")"
 		else
 			for i in $(seq 0 3 $((${#RESULTS[@]} - 1)))
 			do
@@ -192,6 +192,8 @@ init()
 watch()
 {
 	MAL_UPDATE_URL="/includes/ajax.inc.php?t=79"
+	MAL_WATCHING_URL="/includes/ajax.inc.php?t=21"
+	MAL_COMPLETED_URL="/includes/ajax.inc.php?t=18"
 	if [ ! -f "$2/.anime/info" ]
 	then
 		echo "No anime info found"
@@ -205,7 +207,7 @@ watch()
 	echo "TITLE_NAME=\"${TITLE_NAME}\"" >> "$(config_file "$2/.anime/info")"
 	echo "ID=\"${ID}\"" >> "$(config_file "$2/.anime/info")"
 	i="0"
-	for FILENAME in "$2"/*.{mkv,avi}
+	for FILENAME in "$2"/*.{mkv,avi,mp4}
 	do
 		if [ -f "${FILENAME}" ]
 		then
@@ -217,9 +219,14 @@ watch()
 	then
 		exit
 	fi
-	$(cat ${CONFIG_DIR}/player) "${SERIES[$N]}"
+	$(cat "${CONFIG_DIR}/player") "${SERIES[$N]}"
 	echo -n "Updating MyAnimeList information... "
 	post "${MAL_UPDATE_URL}" anime_id ${ID} ep_val "$1" > /dev/null
+	post "${MAL_WATCHING_URL}" eid ${ID} > /dev/null
+	if [ "0${EPISODES_TOTAL}" -gt "0" -a "0$1" -eq "0${EPISODES_TOTAL}" ]
+	then
+		post "${MAL_COMPLETED_URL}" aid ${ID} > /dev/null
+	fi
 	echo "done"
 }
 
