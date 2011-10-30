@@ -242,6 +242,18 @@ next()
 	watch $((${EPISODES_SEEN} + 1)) "$1"
 }
 
+last()
+{
+	if [ ! -f "$1/.anime/info" ]
+	then
+		echo "No anime info found"
+		exit 1
+	fi
+	EPISODES_SEEN="0"
+	. "$1/.anime/info"
+	watch ${EPISODES_SEEN} "$1"
+}
+
 config()
 {
 	echo -n "Do you want to change player? [y/N] "
@@ -302,6 +314,13 @@ main()
 				next .
 			else
 				next "$2"
+			fi;;
+		last)
+			if [ -z "$2" ]
+			then
+				last .
+			else
+				last "$2"
 			fi;;
 		info)
 			if [ -z "$2" ]

@@ -10,6 +10,9 @@ To watch specific episode run:
 To watch next episode run:
 	./anime next [ DIR ]
 
+To watch last seen episode run:
+	./anime last [ DIR ]
+
 To watch statistics run:
 	./anime info [ DIR ]
 
